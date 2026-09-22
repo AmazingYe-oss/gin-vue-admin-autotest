@@ -1,0 +1,10 @@
+login_cases:
+  - password: "123456"
+    expected_code: 0
+  - password: "wrongpassword"
+    expected_code: 7
+  - password: "123131631376176317637126361361"
+    expected_code: 7
+  - password: ""
+    expected_code: 7
+  

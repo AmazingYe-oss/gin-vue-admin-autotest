@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# 测试产物
+allure-results/
+allure-report/
+.pytest_html_report.html
+
+# 日志（运行时产生，不入库）
+logs/
+
+# 探测脚本产生的临时文件
+scratch/_*.py
+tests/_*.py
