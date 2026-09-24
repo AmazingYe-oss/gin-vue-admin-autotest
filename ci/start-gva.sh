@@ -20,6 +20,9 @@
 # =============================================================================
 set -euo pipefail
 
+# CI 诊断：失败时打印真实原因（行号 + 退出码）。排查完成后可移除。
+trap 'code=$?; [ "$code" -ne 0 ] && printf "\n[诊断] 脚本在第 %s 行失败，退出码 %s\n" "$LINENO" "$code" >&2' ERR
+
 GVA_IMAGE="${GVA_IMAGE:?必须设置 GVA_IMAGE，例如 <registry>/<ns>/gva-server:<tag>}"
 GVA_PORT="${GVA_PORT:-8888}"
 GVA_CONTAINER="${GVA_CONTAINER:-gva-autotest}"
@@ -91,7 +94,11 @@ case "${init_resp}" in
 esac
 
 log "关闭登录验证码（sys_security_config.captcha_open）"
-python3 - "${DATA_DIR}/${GVA_DB_NAME}.db" <<'PY'
+PYTHON_BIN="$(command -v python3 || command -v python || true)"
+[ -n "${PYTHON_BIN}" ] || abort "CI 环境里找不到 python3 或 python，无法关闭验证码"
+log "使用解释器：${PYTHON_BIN}"
+
+"${PYTHON_BIN}" - "${DATA_DIR}/${GVA_DB_NAME}.db" <<'PY'
 import sqlite3, sys
 con = sqlite3.connect(sys.argv[1])
 con.execute("UPDATE sys_security_config SET captcha_open = 9999999999999 WHERE id = 1")
