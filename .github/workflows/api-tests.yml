@@ -1,0 +1,136 @@
+name: 接口自动化测试
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "被测 gva-server 镜像 tag；留空则使用仓库变量 GVA_IMAGE_TAG，未设置时使用 latest"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: crpi-he7mqvhihpnvi08o.cn-shanghai.personal.cr.aliyuncs.com
+  NAMESPACE: gin-vue-admin1
+  IMAGE_NAME: gva-server
+  GVA_CONTAINER: gva-autotest
+  GVA_PORT: "8888"
+
+jobs:
+  api-tests:
+    name: API tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 检出测试代码
+        uses: actions/checkout@v7
+
+      - name: 安装 Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: 安装 Python 依赖
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: 安装 Node.js 20
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+
+      - name: 安装 Allure CLI
+        run: npm install --global allure-commandline
+
+      - name: 登录 ACR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: 解析被测镜像
+        id: image
+        env:
+          DISPATCH_TAG: ${{ inputs.image_tag }}
+          REPOSITORY_TAG: ${{ vars.GVA_IMAGE_TAG }}
+        run: |
+          TAG="${DISPATCH_TAG:-${REPOSITORY_TAG:-latest}}"
+          IMAGE="${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}:${TAG}"
+
+          if [ "$TAG" = "latest" ]; then
+            echo "::warning::当前使用 latest；建议在仓库 Variables 中设置 GVA_IMAGE_TAG，以固定测试版本。"
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "被测镜像：$IMAGE"
+
+      - name: 拉取被测镜像并打印 digest
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          docker pull "$IMAGE"
+          docker image inspect "$IMAGE" \
+            --format='镜像 ID={{.Id}}，RepoDigests={{join .RepoDigests ","}}'
+
+      - name: 拉起并初始化 gva 被测环境
+        env:
+          GVA_IMAGE: ${{ steps.image.outputs.image }}
+        run: bash ci/start-gva.sh
+
+      - name: 运行全量接口测试
+        id: tests
+        continue-on-error: true
+        run: |
+          rm -rf allure-results
+          python -m pytest tests/ --alluredir=allure-results
+
+      - name: 生成 Allure HTML 报告
+        if: always()
+        run: |
+          if find allure-results -type f -print -quit 2>/dev/null | grep -q .; then
+            allure generate allure-results --clean --output allure-report
+          else
+            echo "没有找到 Allure 原始结果，跳过 HTML 报告生成。"
+          fi
+
+      - name: 上传 Allure 报告
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: allure-report
+          path: |
+            allure-results
+            allure-report
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: 收集 gva 容器日志
+        if: always()
+        run: |
+          echo "===== gva container logs ====="
+          docker logs --tail 200 "$GVA_CONTAINER" || true
+          echo "===== docker ps -a ====="
+          docker ps -a || true
+
+      - name: 清理 gva 容器
+        if: always()
+        run: docker rm -f "$GVA_CONTAINER" 2>/dev/null || true
+
+      - name: 测试失败则让 Job 失败
+        if: steps.tests.outcome == 'failure'
+        run: |
+          echo "::error::接口测试未全部通过，请下载 Allure artifact 查看详情。"
+          exit 1
