@@ -103,6 +103,12 @@ case "${init_resp}" in
   *) abort "initdb 未返回成功" ;;
 esac
 
+# initdb 完成后，SQLite 文件由容器内 uid=1000 创建、默认权限 644。
+# 而 CI runner 的 uid 是 1001 —— 对它有读无写，下一步用 python 改 captcha_open
+# 时会报 "attempt to write a readonly database"。
+# 目录 777 只能保证"能新建文件"，改不了"已存在文件"的权限，所以必须显式放开。
+docker exec -u 0 "${GVA_CONTAINER}" sh -c   "chmod 666 /app/data/${GVA_DB_NAME}.db* 2>/dev/null || true"
+
 log "关闭登录验证码（sys_security_config.captcha_open）"
 PYTHON_BIN="$(command -v python3 || command -v python || true)"
 [ -n "${PYTHON_BIN}" ] || abort "CI 环境里找不到 python3 或 python，无法关闭验证码"
