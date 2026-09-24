@@ -37,7 +37,6 @@ DATA_DIR="${WORK_DIR}/data"
 CONFIG_DIR="${WORK_DIR}/config"
 mkdir -p "${DATA_DIR}" "${CONFIG_DIR}"
 cp "${GVA_CONFIG}" "${CONFIG_DIR}/config.yaml"
-chmod u+w "${CONFIG_DIR}/config.yaml"
 
 # ---------------------------------------------------------------- 权限说明
 # 镜像内 gva 以非 root 的 app 用户（uid=1000）运行，而它需要对 /app/data 写入
@@ -51,6 +50,17 @@ chmod u+w "${CONFIG_DIR}/config.yaml"
 # 注意：用命名卷（named volume）不能替代本步骤 —— 命名卷默认 root:root 755，
 # 实测同样失败。
 chmod 777 "${DATA_DIR}"
+
+# config.yaml 也必须对容器内 uid 可写：
+#   gva 的 /init/initdb 最后一步 WriteConfig() 会把配置【回写】到这个文件。
+#   CI runner 的 uid(1001) 与容器内 gva 的 uid(1000) 不一致，cp 出来的文件
+#   默认是 644 且属主为 runner，容器内进程只有读权限 → 回写失败 →
+#   整个 initdb 返回 {"code":7,"msg":"自动创建数据库失败"}。
+#
+#   注意此时数据其实已经全部写入 SQLite（容器日志会显示「初始数据成功」），
+#   只有最后一步回写配置失败，因此现象非常矛盾、极难定位。
+#   本机 uid 恰好是 1000 与容器一致，所以本地永远复现不出来。
+chmod 666 "${CONFIG_DIR}/config.yaml"
 
 log()  { printf '\n[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 fail() { printf '\n[失败] %s\n' "$*" >&2; }
