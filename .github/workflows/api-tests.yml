@@ -83,7 +83,7 @@ jobs:
         run: |
           docker pull "$IMAGE"
           docker image inspect "$IMAGE" \
-            --format='镜像 ID={{.Id}}，RepoDigests={{join .RepoDigests ","}}'
+            --format='镜像 ID={{.Id}}，RepoDigests={{json .RepoDigests}}'
 
       - name: 拉起并初始化 gva 被测环境
         env:
