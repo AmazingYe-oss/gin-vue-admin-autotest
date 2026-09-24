@@ -15,3 +15,6 @@ logs/
 # 探测脚本产生的临时文件
 scratch/_*.py
 tests/_*.py
+
+# 学习进度（个人记录，不入库）
+docs/学习进度.md
